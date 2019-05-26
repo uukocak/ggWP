@@ -22,6 +22,7 @@ PL_WHITE equ 0Fh
 
 ;========= MACRO DEFINITIONS =========
 PASS_RECT_PARAM MACRO Xpos, Ypos, Xlen, Ylen, Color
+;Pass parameters to register for rectangle function
             mov RectXpos,Xpos
             mov RectYpos,Ypos
             mov RectXdim,Xlen
@@ -29,37 +30,21 @@ PASS_RECT_PARAM MACRO Xpos, Ypos, Xlen, Ylen, Color
             mov RectColor,Color
 ENDM
 
-SET_PALETTE MACRO color
-            ;save value of address register
-            mov dx,03c4h
-            in al,dx
-            mov PLaddrReg,al
+MOVRB       MACRO reg1, reg2
+;Mov byte reg2 to reg1
+            push bx
+            xor bx,bx
+            mov bl,reg2
+            mov reg1,bl
+            pop bx
+ENDM
 
-            ;output the index of desired data reg. to address reg
-            mov al,02h ; Map Mask register (02h)
-            out dx,al
-
-            ;read value of data register and save
-            mov dx,03c5h
-            in al,dx
-            mov PLdataReg,al
-
-            ;modify data register value
-            mov PLdataReg,color ; 0b00000111 Plane 2-1-0 effected
-
-            ;Write into data register
-            mov al,PLdataReg
-            mov dx,03c5h
-            out dx,al
-
-            ;Write stored address register value to address reg.
-            mov dx,3c4h
-            mov al,PLaddrReg
-            out dx,al
-
-            ;Update current color palette
-            mov PLcurrent,color
-
+MOVRW       MACRO reg1, reg2
+;Mov word reg2 to reg1
+            push bx
+            mov bx,reg2
+            mov reg1,bx
+            pop bx
 ENDM
 ;========= MACRO DEFINITIONS =========
 
@@ -69,7 +54,8 @@ ENDM
 .DATA
 message db "hello, world!",0dh,0ah,'$'
 ;Set palette variables
-PLcurrent db 00h
+PLnewcolor db 00h
+PLlastcolor db 00h
 PLaddrReg db 00h
 PLdataReg db 00h
 ;DrawRect function variables
@@ -109,7 +95,8 @@ InitScreen  PROC
         mov ax,0012h
         int 10h
 ;Set Palette Color
-        SET_PALETTE PL_RED
+        mov PLnewcolor,PL_RED
+        call SetPalette
 ;BG fill
         mov ax,0FFFFh
         mov cx,19200d ;Fullscreen 640*480/16bit
@@ -125,38 +112,65 @@ DrawRect PROC
         mov dx,RectYpos
         int 10h
 ;Create mask for new color
-        mov al,RectColor
-        SET_PALETTE al
-        ;SET_PALETTE PL_BLUE
+        MOVRB PLnewcolor,RectColor
+        call SetPalette
 
-;Calculate Di = 80*y + x and Bx = 80*ylen + xlen
+;Calculate Di = 80*y + x and Cx = ylen
         mov ax,RectYpos
         xor dx,dx
         mov bx,80d
         mul bx
         add ax,RectXpos
         mov di,ax ;Start position
-
-        mov ax,RectYdim
-        xor dx,dx
-        mov bx,80d
-        mul bx
-        add ax,RectXdim
-        mov bx,ax ;End position
-
+        mov cx,RectYdim
+;Draw rectangle
 DrawRect_START:
+        push cx
         mov cx,RectXdim
         mov al,0FFh
         rep stosb
-        cmp di,bx ;Check if end
-        jz DrawRect_END
         sub di,RectXdim
         add di,80d
-        jmp DrawRect_START
+        pop cx
+        loop DrawRect_START
 DrawRect_END:
 
         ret
 DrawRect ENDP
+
+SetPalette PROC
+        ;save value of address register
+        mov dx,03c4h
+        in al,dx
+        mov PLaddrReg,al
+
+        ;output the index of desired data reg. to address reg
+        mov al,02h ; Map Mask register (02h)
+        out dx,al
+
+        ;read value of data register and save
+        mov dx,03c5h
+        in al,dx
+        mov PLdataReg,al
+
+        ;modify data register value
+        MOVRB PLdataReg,PLnewcolor ; 0b0000XXXX Planes I-R-G-B
+
+        ;Write into data register
+        mov al,PLdataReg
+        mov dx,03c5h
+        out dx,al
+
+        ;Write stored address register value to address reg.
+        mov dx,3c4h
+        mov al,PLaddrReg
+        out dx,al
+
+        ;Update current color palette
+        MOVRB PLlastcolor,PLnewcolor
+
+        ret
+SetPalette ENDP
 
 ExitProgram  PROC
 ;Check keyboard and exits if ESC pressed
