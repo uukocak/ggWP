@@ -21,7 +21,9 @@ PL_WHITE equ 0Fh
 ;========= COLOR ENUM =========
 
 ;========= SCANCODE ENUM =========
-KEY_DOWN equ 5000h;
+KEY_LEFT equ 4B00h
+KEY_RIGHT equ 4D00h
+KEY_DOWN equ 5000h
 KEY_UP equ 4800h
 KEY_ESC equ 011Bh
 KEY_ENTER equ 1C0DH
@@ -35,6 +37,8 @@ KEY_F7 equ 4100h
 KEY_F8 equ 4200h
 KEY_F9 equ 4300h
 KEY_F10 equ 4400h
+KEY_BACKSPACE equ 0E08h
+KEY_DEL equ 5300h
 ;========= SCANCODE ENUM =========
 
 ;========= MACRO DEFINITIONS =========
@@ -118,6 +122,7 @@ SET_CURSOR  MACRO row, col
 ENDM
 
 PUT_CURSOR  MACRO rowPos, colPos ,strColor, strBGcolor
+        push ax
         push bx
         push dx
 ;set cursor
@@ -143,9 +148,9 @@ PUT_CURSOR  MACRO rowPos, colPos ,strColor, strBGcolor
 
         pop dx
         pop bx
+        pop ax
 ENDM
 
-;!!!! ERRROR IN THIS MACRO
 PRINT_BHEX_NUM MACRO PackedHex, strColor, strBGcolor
 ;Print byte hex num
         xor ah,ah
@@ -174,25 +179,64 @@ PRINT_BHEX_NUM MACRO PackedHex, strColor, strBGcolor
         int 10h
 ENDM
 
-WRITE_CHAR  MACRO char, rowPos, colPos ,strColor, strBGcolor
-        push bx
-        push dx
-;Put blank and put char
+DEL_CHAR MACRO Row, Col, stringName, charColor, BgColor
         push ax
+        push bx
+        MOVRB WIFcursorRow,Row
+        MOVRB WIFcursorCol,Col
+        call CalcCursorPos
+        lea bx,stringName
+        add bx,WIFcursorPos
+        xor ax,ax
+        mov al,[bx]
+        push ax
+        ;Reset position
+        mov ax,0200h
+        xor bx,bx
+        mov dh,Row
+        mov dl,Col
+        int 10h
+        ;Put char into position
+        pop ax
         mov ah,0Eh
-        mov al,05Fh ;put underscore
         xor bh,bh
-        mov bl,strColor ;Text Color
-        xor bl,strBGcolor ;Button BG
+        mov bl,charColor ;Text Color
+        xor bl,BgColor ;Button BG
         or bl,0F0h
         int 10h
 
+        lea bx,stringName
+        add bx,WIFcursorPos
+        mov BYTE PTR [bx],20h
+        pop bx
+        pop ax
+ENDM
+
+WRITE_CHAR  MACRO char, rowPos, colPos ,strColor, strBGcolor ,crsColor
+        push bx
+        push dx
+;Delete cursor at pos
+        push ax
+;Reset position
         mov ax,0200h
         xor bx,bx
         mov dh,rowPos
         mov dl,colPos
         int 10h
-
+        mov ah,0Eh
+        mov al,05Fh ;put underscore
+        xor bh,bh
+        mov bl,crsColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+;Reset position
+        mov ax,0200h
+        xor bx,bx
+        mov dh,rowPos
+        mov dl,colPos
+        int 10h
+;Put char into position
         pop ax
         mov al,char ;put char
         mov ah,0Eh
@@ -204,7 +248,6 @@ WRITE_CHAR  MACRO char, rowPos, colPos ,strColor, strBGcolor
         pop dx
         pop bx
 ENDM
-
 
 WRITE_STRING MACRO strName, strColor, strBGcolor
 local string_loop
@@ -246,7 +289,9 @@ strRow db "Row    = ",'$'
 strCol db "Column = ",'$'
 strTxt db ".txt",'$'
 ;======== STRINGS ========
-BGcolour db PL_BLUE
+InputFileStr db 1896 DUP (20h),'$'
+BGcolor db PL_BLUE
+CursorColor db PL_WHITE
 MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
 ;Set palette variables
 PLnewcolor db 00h
@@ -277,12 +322,13 @@ DTstrColor db 00h
 DTstatActive db 00h ;Status for toolbar, 0:Deactive , 1:Active
 ;Namebar variables
 NBstatActive db 00h ;Status for namebar, 0:Deactive , 1:Active
-NBfileName db 8 DUP (0)
+NBfileName db 8 DUP (0),'$'
 ;Write Methods
 WIFcursorPos dw 00h
 WIFcursorRow db 00h
 WIFcursorCol db 00h
 WIFcursorStatActive db 00h ;Status for cursor str 0:Deactive , 1:Active
+
 
 .CODE
 .STARTUP
@@ -408,42 +454,77 @@ wcrc_row_end:
     ret
 WrapColRowCount ENDP
 
+CalcCursorPos  PROC
+        push ax
+        push bx
+        xor ax,ax
+        mov al,WIFcursorRow
+        sub ax,2d
+        mov bl,79d
+        mul bl
+        xor bx,bx
+        mov bl,WIFcursorCol
+        add ax,bx
+        mov WIFcursorPos,ax
+        pop bx
+        pop ax
+        ret
+CalcCursorPos  ENDP
+
 WriteIntoFile  PROC
         mov WIFcursorRow,2d
         mov WIFcursorCol,2d
         SET_CURSOR WIFcursorRow, WIFcursorCol
-        mov WIFcursorPos,0000h
+        call CalcCursorPos
 wif_loop:
         call DrawCursorStr
-        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
-        mov ax,0700h
-        int 21h
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        mov ax,0000h
+        int 16h
         ;;Check valid input
-        CMPSC al,KEY_F1
+        cmp ax,KEY_F1
         jz wif_Menu
-        CMPSC al,KEY_F2
+        cmp ax,KEY_F2
         jz wif_LoadFile
-        CMPSC al,KEY_F3
+        cmp ax,KEY_F3
         jz wif_NewFile
-        CMPSC al,KEY_F4
+        cmp ax,KEY_F4
         jz wif_SaveFile
-        CMPSC al,KEY_ENTER
+        cmp ax,KEY_ENTER
         jz wif_Enter
-        CMPSC al,KEY_ESC
+        cmp ax,KEY_UP
+        jz wif_Up
+        cmp ax,KEY_DOWN
+        jz wif_Down
+        cmp ax,KEY_LEFT
+        jz wif_Left
+        cmp ax,KEY_RIGHT
+        jz wif_Right
+        cmp ax,KEY_BACKSPACE
+        jz wif_BackSpace
+        cmp ax,KEY_DEL
+        jz wif_Delete
+        cmp ax,KEY_ESC
         jz wif_Exit
         ;else print to screen
-        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        DEL_CHAR WIFcursorRow, WIFcursorCol, InputFileStr, PL_WHITE, BGcolor
+        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_WHITE, BGcolor, CursorColor
+        lea bx,InputFileStr
+        add bx,WIFcursorPos
+        mov BYTE PTR [bx],al
         inc WIFcursorCol
         call WrapColRowCount
+        call CalcCursorPos
         jmp wif_loop
         ret
 wif_Enter:
-        WRITE_CHAR 0Dh, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
-        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
-        WRITE_CHAR 0Ah, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        WRITE_CHAR 0Dh, WIFcursorRow, WIFcursorCol, PL_WHITE, BGcolor, CursorColor
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        WRITE_CHAR 0Ah, WIFcursorRow, WIFcursorCol, PL_WHITE, BGcolor, CursorColor
         mov WIFcursorCol,0d ; chars in 1 line
         inc WIFcursorRow
         call WrapColRowCount
+        call CalcCursorPos
         jmp wif_loop
 wif_Menu:
         call Menu
@@ -454,6 +535,56 @@ wif_NewFile:
         call NewFile
         ret
 wif_SaveFile:
+        ret
+wif_Up:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        dec WIFcursorRow
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
+        ret
+wif_Down:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        inc WIFcursorRow
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
+        ret
+wif_Left:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        dec WIFcursorCol
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
+        ret
+wif_Right:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        inc WIFcursorCol
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
+        ret
+wif_BackSpace:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        dec WIFcursorCol
+        call WrapColRowCount
+        call CalcCursorPos
+        ;delete char at pos
+        DEL_CHAR WIFcursorRow, WIFcursorCol, InputFileStr, PL_WHITE ,BGcolor
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
+        ret
+wif_Delete:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
+        inc WIFcursorCol
+        call WrapColRowCount
+        call CalcCursorPos
+        ;delete char at pos
+        DEL_CHAR WIFcursorRow, WIFcursorCol, InputFileStr, PL_WHITE ,BGcolor
+        call WrapColRowCount
+        call CalcCursorPos
+        jmp wif_loop
         ret
 wif_Exit:
         call Exit
@@ -470,11 +601,11 @@ InputFileName  PROC
         add cx,8 ;End condition
 ifn_loop:
         PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
-        mov ax,0700h
-        int 21h
-        CMPSC al,KEY_ENTER ;Enter key
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_ENTER ;Enter key
         jz ifn_end
-        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
+        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY, PL_RED
         inc WIFcursorCol ;check and inc WIFcursorRow also
         mov [bx],al
         inc bx
@@ -482,7 +613,7 @@ ifn_loop:
         jnz ifn_loop
 
 ifn_end:
-        WRITE_CHAR ' ', WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY ;delete underscore
+        WRITE_CHAR ' ', WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY, PL_RED ;delete underscore
         SET_CURSOR WIFcursorRow,WIFcursorCol
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
         mov NBstatActive,1d
@@ -522,14 +653,13 @@ NewFile PROC
         PASS_RECT_PARAM 0d,20d,80d,420d,0d
         call ResetRect
 ;Redraw center rectangle
-        mov bl,BGcolour
+        mov bl,BGcolor
         PASS_RECT_PARAM 0d,20d,80d,420d,bl
         call DrawRect
 ;Draw toolbar
         call DrawToolbar
         call DrawNamebar
 nf_ret:
-        ;call CheckToolbar
         call InputFileName
         call WriteIntoFile
         jmp nf_ret
@@ -593,6 +723,18 @@ dcs_active:
 DrawCursorStr ENDP
 
 DrawNamebar PROC
+;Draw Header
+        PASS_RECT_PARAM 0d,0d,80d,20d,PL_LGRAY
+        call DrawRect
+        cmp NBstatActive,0d
+        jz dn_nbactive
+        mov WIFcursorRow,0
+        mov WIFcursorCol,13d
+        SET_CURSOR WIFcursorRow, WIFcursorCol
+        WRITE_STRING NBfileName, PL_RED, PL_LGRAY
+        SET_CURSOR WIFcursorRow,WIFcursorCol
+        WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
+dn_nbactive:
         SET_CURSOR 0d, 1d
         WRITE_STRING strName, PL_BLACK, PL_LGRAY
         RET
@@ -728,7 +870,7 @@ ResetRect ENDP
 DrawSelection PROC
 ;Reset current selection
         mov ax,UIactiveSel
-        mov bl,BGcolour
+        mov bl,BGcolor
         mov dx,UIbtnHeight
         PASS_SEL_PARAM 24d,ax,32d,dx,bl
         call DrawSelectionBox
@@ -811,7 +953,7 @@ DrawMenu PROC
         PASS_RECT_PARAM 0d,20d,80d,420d,0d
         call ResetRect
 ;Set Palette Color
-        MOVRB PLnewcolor,BGcolour
+        MOVRB PLnewcolor,BGcolor
         call SetPalette
 ;BG fill
         mov ax,0FFFFh
