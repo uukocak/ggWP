@@ -1,4 +1,4 @@
-TITLE HELLO WORLD PROGRAM
+TITLE ggWP
 ; THIS PROGRAM DISPLAYS "HELLO, WORLD!"
 
 ;========= COLOR ENUM =========
@@ -24,6 +24,17 @@ PL_WHITE equ 0Fh
 KEY_DOWN equ 5000h;
 KEY_UP equ 4800h
 KEY_ESC equ 011Bh
+KEY_ENTER equ 1C0DH
+KEY_F1 equ 3B00h
+KEY_F2 equ 3C00h
+KEY_F3 equ 3D00h
+KEY_F4 equ 3E00h
+KEY_F5 equ 3F00h
+KEY_F6 equ 4000h
+KEY_F7 equ 4100h
+KEY_F8 equ 4200h
+KEY_F9 equ 4300h
+KEY_F10 equ 4400h
 ;========= SCANCODE ENUM =========
 
 ;========= MACRO DEFINITIONS =========
@@ -77,6 +88,13 @@ MULW        MACRO reg1, reg2
             pop dx
 ENDM
 
+CMPSC       MACRO var1, var2
+            push bx
+            mov bx,var2
+            cmp var1,bl
+            pop bx
+ENDM
+
 PUT_PIXEL   MACRO x_cor, y_cor, color
             push ax
             push bx
@@ -89,14 +107,147 @@ PUT_PIXEL   MACRO x_cor, y_cor, color
             pop bx
             pop ax
 ENDM
+
+SET_CURSOR  MACRO row, col
+;Set cursor to row,col
+        mov ax,0200h
+        xor bx,bx
+        mov dh,row
+        mov dl,col
+        int 10h
+ENDM
+
+PUT_CURSOR  MACRO rowPos, colPos ,strColor, strBGcolor
+        push bx
+        push dx
+;set cursor
+        mov ax,0200h
+        xor bx,bx
+        mov dh,rowPos
+        mov dl,colPos
+        int 10h
+;Put undersoce and restore cursor position
+        mov ah,0Eh
+        mov al,05Fh ;underscore cursor
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+;restore cursor
+        mov ax,0200h
+        xor bx,bx
+        mov dh,rowPos
+        mov dl,colPos
+        int 10h
+
+        pop dx
+        pop bx
+ENDM
+
+;!!!! ERRROR IN THIS MACRO
+PRINT_BHEX_NUM MACRO PackedHex, strColor, strBGcolor
+;Print byte hex num
+        xor ah,ah
+        mov al,PackedHex
+        xor bx,bx
+        mov bl,10d
+        div bl
+        add al,30h
+        push ax
+
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+
+        pop ax
+        mov al,ah
+        add al,30h
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+ENDM
+
+WRITE_CHAR  MACRO char, rowPos, colPos ,strColor, strBGcolor
+        push bx
+        push dx
+;Put blank and put char
+        push ax
+        mov ah,0Eh
+        mov al,05Fh ;put underscore
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+
+        mov ax,0200h
+        xor bx,bx
+        mov dh,rowPos
+        mov dl,colPos
+        int 10h
+
+        pop ax
+        mov al,char ;put char
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+        pop dx
+        pop bx
+ENDM
+
+
+WRITE_STRING MACRO strName, strColor, strBGcolor
+local string_loop
+        lea bx,strName
+        mov al,[bx]
+string_loop:
+        push bx
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,strColor ;Text Color
+        xor bl,strBGcolor ;Button BG
+        or bl,0F0h
+        int 10h
+        pop bx
+        inc bx
+        mov al,[bx]
+        cmp al,'$'
+        jnz string_loop
+ENDM
+
 ;========= MACRO DEFINITIONS =========
 
 .MODEL large,stdcall
 .STACK 100h ;256 BYTE STACK
 
 .DATA
-message db "hello, world!",0dh,0ah,'$'
+;======== STRINGS ========
+strLoad db "Load File",'$'
+strNew db "New File",'$'
+strSave db "Save File",'$'
+strResume db "Resume",'$'
+strExit db "Exit",'$'
+strToolbarUp db "F1  ",'#',"Menu   ",'*',"F2  ",'#',"Load   ",'*',"F3  ",'#',"New   ",'*',"F4  ",'#',"Save   ",'*',"F5  ",'#',"Find   ",'$'
+strToolbarDown db "F6  ",'#',"Cap Sentence   ",'*',"F7  ",'#',"Cap Words   ",'*',"ESC  ",'#',"Exit   ",'$'
+; '#' change to PL_BLACK
+; '*' change to PL_RED
+strName db "File Name : ",'$'
+strRow db "Row    = ",'$'
+strCol db "Column = ",'$'
+strTxt db ".txt",'$'
+;======== STRINGS ========
 BGcolour db PL_BLUE
+MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
 ;Set palette variables
 PLnewcolor db 00h
 PLlastcolor db 00h
@@ -115,11 +266,23 @@ BoxXdim dw 0000h ;0-80
 BoxYdim dw 0000h ;0-480
 BoxSelColor db 00h ;Selection box color
 ;DrawSelection function variables
-UIactiveSel dw 80d ;Position of active selection
-UIbtnOffset dw 80d ;Offset to first Buttons
-UIbtnSpacing dw 80d ;Spacing between Buttons
-UIbtnNumber dw 4d ; Number of buttons
+UIactiveSel dw 103d ;Position of active selection
+UIbtnOffset dw 103d ;Offset to first Buttons
+UIbtnSpacing dw 65d ;Spacing between Buttons
+UIbtnHeight dw 30d ;Button height
+UIbtnNumber dw 5d ; Number of buttons
 UIopt dw 0000h ;0-1-2-3
+;Draw toolbar varibles
+DTstrColor db 00h
+DTstatActive db 00h ;Status for toolbar, 0:Deactive , 1:Active
+;Namebar variables
+NBstatActive db 00h ;Status for namebar, 0:Deactive , 1:Active
+NBfileName db 8 DUP (0)
+;Write Methods
+WIFcursorPos dw 00h
+WIFcursorRow db 00h
+WIFcursorCol db 00h
+WIFcursorStatActive db 00h ;Status for cursor str 0:Deactive , 1:Active
 
 .CODE
 .STARTUP
@@ -129,10 +292,7 @@ UIopt dw 0000h ;0-1-2-3
         ;ES -> Video memory
         mov ax,0A000h
         mov es,ax
-
-        mov ah,9
-        lea dx,message
-        int 21h
+init:
         call InitScreen
 main:
         call CheckKey
@@ -149,49 +309,371 @@ InitScreen  PROC
 ;Initialize display
         mov ax,0012h
         int 10h
-;Set Palette Color
-        MOVRB PLnewcolor,BGcolour
-        call SetPalette
-;BG fill
-        mov ax,0FFFFh
-        mov cx,19200d ;Fullscreen 640*480/16bit
-        xor di,di
-        rep stosw
-
-;Draw Buttons
-        mov ax,UIbtnOffset
-        mov cx,UIbtnNumber
-init_drawbtn:
-        push cx
-        push ax
-        PASS_RECT_PARAM 24d,ax,32d,40d,PL_CYAN
-        call DrawRect
-        pop ax
-        pop cx
-        add ax,UIbtnSpacing
-        loop init_drawbtn
-
-;Draw Header
-        PASS_RECT_PARAM 0d,0d,80d,20d,PL_LGRAY
-        call DrawRect
-
-;Draw Footer
-        PASS_RECT_PARAM 0d,440d,80d,40d,PL_LGRAY
-        call DrawRect
-
-;Draw Selection box
-        mov UIopt,0d
-        call DrawSelection
-
+;Draw Menu
+        call DrawMenu
+        ret
 InitScreen  ENDP
 
-DrawRect PROC
-;Read pixel color in start pos
-        mov ax,0D00h
-        xor bx,bx
-        mov cx,RectXpos
-        mov dx,RectYpos
+CheckToolbar  PROC
+;Check keyboard and update ui
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_F1
+        jz ct_Menu
+        cmp ax,KEY_F2
+        jz ct_LoadFile
+        cmp ax,KEY_F3
+        jz ct_NewFile
+        cmp ax,KEY_F4
+        jz ct_SaveFile
+        cmp ax,KEY_ENTER
+        jz ct_enterkey
+        cmp ax,KEY_ESC
+        jz ct_Exit
+        ;else print to screen
+        ret
+ct_Menu:
+        call Menu
+        ret
+ct_LoadFile:
+        ret
+ct_NewFile:
+        call NewFile
+        ret
+ct_enterkey:
+        cmp NBstatActive,1d
+        jz ct_nbactive
+        call InputFileName
+ct_nbactive:
+        call WriteIntoFile
+        ret
+ct_SaveFile:
+        ret
+ct_Exit:
+        call Exit
+
+CheckToolbar  ENDP
+
+CheckKey  PROC
+;Check keyboard and update ui
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_UP
+        jz ck_dec
+        cmp ax,KEY_DOWN
+        jz ck_inc
+        cmp ax,KEY_ENTER
+        jz ck_enter
+        cmp ax,KEY_ESC
+        jz ck_exit
+ck_end:
+        ret
+ck_inc:
+        mov ax,UIbtnNumber
+        add UIopt,1d
+        cmp UIopt,ax
+        jb ck_end
+        sub UIopt,ax
+        jmp ck_end
+ck_dec:
+        mov ax,UIbtnNumber
+        sub UIopt,1d
+        cmp UIopt,0d
+        jns ck_end
+        add UIopt,ax
+        jmp ck_end
+ck_enter:
+        mov bx,UIopt
+        shl bx,1
+        jmp MenuOption[bx]
+        jmp ck_end
+ck_exit:
+        mov ax,0002h  ;Set text mode
         int 10h
+        mov ax, 4c00h
+        int 21h
+
+CheckKey  ENDP
+
+WrapColRowCount PROC
+    cmp WIFcursorCol,80d
+    jb wcrc_col_end
+    sub WIFcursorCol,80d
+    inc WIFcursorRow
+wcrc_col_end:
+    cmp WIFcursorRow,27d
+    jb wcrc_row_end
+    mov WIFcursorRow,2d
+wcrc_row_end:
+    ret
+WrapColRowCount ENDP
+
+WriteIntoFile  PROC
+        mov WIFcursorRow,2d
+        mov WIFcursorCol,2d
+        SET_CURSOR WIFcursorRow, WIFcursorCol
+        mov WIFcursorPos,0000h
+wif_loop:
+        call DrawCursorStr
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        mov ax,0700h
+        int 21h
+        ;;Check valid input
+        CMPSC al,KEY_F1
+        jz wif_Menu
+        CMPSC al,KEY_F2
+        jz wif_LoadFile
+        CMPSC al,KEY_F3
+        jz wif_NewFile
+        CMPSC al,KEY_F4
+        jz wif_SaveFile
+        CMPSC al,KEY_ENTER
+        jz wif_Enter
+        CMPSC al,KEY_ESC
+        jz wif_Exit
+        ;else print to screen
+        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        inc WIFcursorCol
+        call WrapColRowCount
+        jmp wif_loop
+        ret
+wif_Enter:
+        WRITE_CHAR 0Dh, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        WRITE_CHAR 0Ah, WIFcursorRow, WIFcursorCol, PL_WHITE, PL_BLUE
+        mov WIFcursorCol,0d ; chars in 1 line
+        inc WIFcursorRow
+        call WrapColRowCount
+        jmp wif_loop
+wif_Menu:
+        call Menu
+        ret
+wif_LoadFile:
+        ret
+wif_NewFile:
+        call NewFile
+        ret
+wif_SaveFile:
+        ret
+wif_Exit:
+        call Exit
+        jnz wif_loop
+        ret
+WriteIntoFile  ENDP
+
+InputFileName  PROC
+        mov WIFcursorRow,0
+        mov WIFcursorCol,13d
+        SET_CURSOR WIFcursorRow, WIFcursorCol
+        lea bx,NBfileName
+        mov cx,bx
+        add cx,8 ;End condition
+ifn_loop:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
+        mov ax,0700h
+        int 21h
+        CMPSC al,KEY_ENTER ;Enter key
+        jz ifn_end
+        WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
+        inc WIFcursorCol ;check and inc WIFcursorRow also
+        mov [bx],al
+        inc bx
+        cmp bx,cx
+        jnz ifn_loop
+
+ifn_end:
+        WRITE_CHAR ' ', WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY ;delete underscore
+        SET_CURSOR WIFcursorRow,WIFcursorCol
+        WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
+        mov NBstatActive,1d
+        ;call create new file
+        ret
+InputFileName  ENDP
+
+ExitProgram  PROC
+;Check keyboard and exits if ESC pressed
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_ESC
+        jnz continue
+        mov ax,0002h  ;Set text mode
+        int 10h
+        mov ax, 4c00h
+        int 21h
+continue:
+        ret
+ExitProgram  ENDP
+; ===================== MENU METHODS =====================
+Menu PROC
+        call DrawMenu
+m_ret:
+        call CheckKey
+        call DrawSelection
+        jmp m_ret
+        ret
+Menu ENDP
+LoadFile PROC
+        ret
+LoadFile ENDP
+NewFile PROC
+        mov NBstatActive,0d
+        mov WIFcursorStatActive,0d
+;Reset Center rectangle
+        PASS_RECT_PARAM 0d,20d,80d,420d,0d
+        call ResetRect
+;Redraw center rectangle
+        mov bl,BGcolour
+        PASS_RECT_PARAM 0d,20d,80d,420d,bl
+        call DrawRect
+;Draw toolbar
+        call DrawToolbar
+        call DrawNamebar
+nf_ret:
+        ;call CheckToolbar
+        call InputFileName
+        call WriteIntoFile
+        jmp nf_ret
+        ret
+NewFile ENDP
+SaveFile PROC
+        ret
+SaveFile ENDP
+Resume PROC
+        ret
+Resume ENDP
+Exit PROC
+        mov ax,0002h  ;Set text mode
+        int 10h
+        mov ax, 4c00h
+        int 21h
+        ret
+Exit ENDP
+; ===================== MENU METHODS =====================
+; ===================== DRAW METHODS =====================
+DrawMenuStr PROC
+
+        SET_CURSOR 7d, 35d
+        WRITE_STRING strLoad, PL_WHITE, PL_CYAN
+
+        SET_CURSOR 11d, 35d
+        WRITE_STRING strNew, PL_WHITE, PL_CYAN
+
+        SET_CURSOR 15d, 35d
+        WRITE_STRING strSave, PL_WHITE, PL_CYAN
+
+        SET_CURSOR 19d, 36d
+        WRITE_STRING strResume, PL_WHITE, PL_CYAN
+
+        SET_CURSOR 23d, 37d
+        WRITE_STRING strExit, PL_WHITE, PL_CYAN
+
+        RET
+
+DrawMenuStr ENDP
+
+DrawCursorStr PROC
+        cmp WIFcursorStatActive,1d
+        jz dcs_active
+        SET_CURSOR 28d, 60d
+        WRITE_STRING strRow, PL_MAGENTA, PL_LGRAY
+        SET_CURSOR 29d, 60d
+        WRITE_STRING strCol, PL_MAGENTA, PL_LGRAY
+
+dcs_active:
+
+        PASS_RECT_PARAM 69d, 440d, 3d, 40d, PL_LGRAY
+        call DrawRect
+        SET_CURSOR 28d, 69d
+        PRINT_BHEX_NUM WIFcursorRow, PL_BLUE, PL_LGRAY
+        SET_CURSOR 29d, 69d
+        PRINT_BHEX_NUM WIFcursorCol, PL_BLUE, PL_LGRAY
+
+        mov WIFcursorStatActive,1d
+        RET
+DrawCursorStr ENDP
+
+DrawNamebar PROC
+        SET_CURSOR 0d, 1d
+        WRITE_STRING strName, PL_BLACK, PL_LGRAY
+        RET
+DrawNamebar ENDP
+
+DrawToolbar PROC
+;Draw upper toolbar
+        cmp DTstatActive,1d
+        jz dt_end ;dont draw if toolbar active
+        SET_CURSOR 28d, 4d
+        mov DTstrColor,PL_RED
+        lea bx,strToolbarUp
+        mov al,[bx]
+dt_string_loop_up:
+        push bx
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,DTstrColor ;Text Color
+        xor bl,PL_LGRAY ;Button BG
+        or bl,0F0h
+        int 10h
+        pop bx
+        inc bx
+        mov al,[bx]
+        cmp al,'#'
+        jz dt_set_black_up
+        cmp al,'*'
+        jz dt_set_red_up
+dt_continue_up:
+        cmp al,'$'
+        jnz dt_string_loop_up
+;Draw below toolbar
+        SET_CURSOR 29d, 4d
+        mov DTstrColor,PL_RED
+        lea bx,strToolbarDown
+        mov al,[bx]
+dt_string_loop_down:
+        push bx
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,DTstrColor ;Text Color
+        xor bl,PL_LGRAY ;Button BG
+        or bl,0F0h
+        int 10h
+        pop bx
+        inc bx
+        mov al,[bx]
+        cmp al,'#'
+        jz dt_set_black_down
+        cmp al,'*'
+        jz dt_set_red_down
+dt_continue_down:
+        cmp al,'$'
+        jnz dt_string_loop_down
+        mov DTstatActive,1d
+dt_end: ret
+
+dt_set_red_down:
+        mov DTstrColor,PL_RED
+        inc bx
+        mov al,[bx]
+        jmp dt_continue_down
+dt_set_black_down:
+        mov DTstrColor,PL_BLACK
+        inc bx
+        mov al,[bx]
+        jmp dt_continue_down
+dt_set_red_up:
+        mov DTstrColor,PL_RED
+        inc bx
+        mov al,[bx]
+        jmp dt_continue_up
+dt_set_black_up:
+        mov DTstrColor,PL_BLACK
+        inc bx
+        mov al,[bx]
+        jmp dt_continue_up
+
+DrawToolbar ENDP
+
+DrawRect PROC
 ;Create mask for new color
         MOVRB PLnewcolor,RectColor
         call SetPalette
@@ -214,26 +696,52 @@ DrawRect_START:
         add di,80d
         pop cx
         loop DrawRect_START
-DrawRect_END:
-
         ret
 DrawRect ENDP
+
+ResetRect PROC
+;Create mask for new color
+        mov PLnewcolor,0Fh
+        call SetPalette
+
+;Calculate Di = 80*y + x and Cx = ylen
+        mov ax,RectYpos
+        xor dx,dx
+        mov bx,80d
+        mul bx
+        add ax,RectXpos
+        mov di,ax ;Start position
+        mov cx,RectYdim
+;Draw rectangle
+ResetRect_START:
+        push cx
+        mov cx,RectXdim
+        mov al,00h
+        rep stosb
+        sub di,RectXdim
+        add di,80d
+        pop cx
+        loop ResetRect_START
+        ret
+ResetRect ENDP
 
 DrawSelection PROC
 ;Reset current selection
         mov ax,UIactiveSel
         mov bl,BGcolour
-        PASS_SEL_PARAM 24d,ax,32d,40d,bl
+        mov dx,UIbtnHeight
+        PASS_SEL_PARAM 24d,ax,32d,dx,bl
         call DrawSelectionBox
 
 ;Draw new selection
         mov ax,UIbtnOffset
-        mov UIactiveSel,80d
+        MOVRW UIactiveSel,UIbtnSpacing
         MULW UIactiveSel,UIopt
         add UIactiveSel,ax
         mov ax,UIactiveSel
+        mov dx,UIbtnHeight
 
-        PASS_SEL_PARAM 24d,ax,32d,40d,PL_RED
+        PASS_SEL_PARAM 24d,ax,32d,dx,PL_RED
         call DrawSelectionBox
 
         ret
@@ -298,6 +806,52 @@ ds_lsidelp:
 
 DrawSelectionBox ENDP
 
+DrawMenu PROC
+;Reset center rectangle
+        PASS_RECT_PARAM 0d,20d,80d,420d,0d
+        call ResetRect
+;Set Palette Color
+        MOVRB PLnewcolor,BGcolour
+        call SetPalette
+;BG fill
+        mov ax,0FFFFh
+        mov cx,19200d ;Fullscreen 640*480/16bit
+        xor di,di
+        rep stosw
+;Draw Buttons
+        mov ax,UIbtnOffset
+        mov bx,UIbtnHeight
+        mov cx,UIbtnNumber
+init_drawbtn:
+        push cx
+        push bx
+        push ax
+        PASS_RECT_PARAM 24d,ax,32d,bx,PL_CYAN
+        call DrawRect
+        pop ax
+        pop bx
+        pop cx
+        add ax,UIbtnSpacing
+        loop init_drawbtn
+
+;Draw Header
+        PASS_RECT_PARAM 0d,0d,80d,20d,PL_LGRAY
+        call DrawRect
+
+;Draw Footer
+        PASS_RECT_PARAM 0d,440d,80d,40d,PL_LGRAY
+        call DrawRect
+        mov DTstatActive,0d ;Toolbar deactivated
+
+;Write button texts
+        call DrawMenuStr
+
+;Draw Selection box
+        mov UIopt,0d
+        call DrawSelection
+        ret
+DrawMenu ENDP
+
 SetPalette PROC
         ;save value of address register
         mov dx,03c4h
@@ -331,54 +885,7 @@ SetPalette PROC
 
         ret
 SetPalette ENDP
-
-CheckKey  PROC
-;Check keyboard and update ui
-        mov ax,0000h
-        int 16h
-        cmp ax,KEY_UP
-        jz ck_dec
-        cmp ax,KEY_DOWN
-        jz ck_inc
-        cmp ax,KEY_ESC
-        jz ck_exit
-ck_end:
-        ret
-ck_inc:
-        mov ax,UIbtnNumber
-        add UIopt,1d
-        cmp UIopt,ax
-        jb ck_end
-        sub UIopt,ax
-        jmp ck_end
-ck_dec:
-        mov ax,UIbtnNumber
-        sub UIopt,1d
-        cmp UIopt,0d
-        jns ck_end
-        add UIopt,ax
-        jmp ck_end
-ck_exit:
-        mov ax,0002h  ;Set text mode
-        int 10h
-        mov ax, 4c00h
-        int 21h
-
-CheckKey  ENDP
-
-ExitProgram  PROC
-;Check keyboard and exits if ESC pressed
-        mov ax,0000h
-        int 16h
-        cmp ax,KEY_ESC
-        jnz continue
-        mov ax,0002h  ;Set text mode
-        int 10h
-        mov ax, 4c00h
-        int 21h
-continue:
-        ret
-ExitProgram  ENDP
+; ===================== DRAW METHODS =====================
 ; ===================== PROCEDURES =====================
 
 END
