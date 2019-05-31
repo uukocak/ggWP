@@ -41,6 +41,10 @@ KEY_BACKSPACE equ 0E08h
 KEY_DEL equ 5300h
 ;========= SCANCODE ENUM =========
 
+;========= OTHER PARAM =========
+MAX_LEN_FILENAME equ 8d ;Working up to 8 ?
+;========= OTHER PARAM =========
+
 ;========= MACRO DEFINITIONS =========
 
 DEBUG_VALUE_REG MACRO regname
@@ -68,6 +72,20 @@ p1:
 enddebug:
             POPALL
             call ExitProgram
+ENDM
+
+LOG_HANDLE_N_ERROR MACRO FileHandleReg, FileErrorCodeReg
+local proc_success
+            jnc proc_success
+            mov FileErrorCodeReg,ax
+            mov FileHandleReg,0000h
+            POPALL
+            RET
+proc_success:
+            mov FileHandleReg,ax
+            mov FileErrorCodeReg,0000h
+            POPALL
+            RET
 ENDM
 
 PASS_RECT_PARAM MACRO Xpos, Ypos, Xlen, Ylen, Color
@@ -377,7 +395,7 @@ DTstrColor db 00h
 DTstatActive db 00h ;Status for toolbar, 0:Deactive , 1:Active
 ;Namebar variables
 NBstatActive db 00h ;Status for namebar, 0:Deactive , 1:Active
-NBfileName db 8 DUP (20h),'$'
+NBfileName db MAX_LEN_FILENAME DUP (20h),'$'
 ;Write Methods
 WIFcursorPos dw 00h
 WIFcursorRow db 00h
@@ -386,8 +404,8 @@ WIFcursorStatActive db 00h ;Status for cursor str 0:Deactive , 1:Active
 ;File Methods
 FileErrorCode dw 0000h
 FileHandle dw 0000h
-LoadedFilePath db "./" ,8 DUP (20h),".txt",0
-NewFilePath db "./" ,8 DUP (20h),".txt",0
+LoadedFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
+NewFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 FileBuffer db 2500d DUP (20h),'$'
 
 .CODE
@@ -576,14 +594,13 @@ fe_Menu:
         call Menu
         ret
 fe_LoadFile:
+        call LoadFile
         ret
 fe_NewFile:
         call NewFile
         ret
 fe_SaveFile:
-        call WriteFile
-        call CloseFile
-        call Menu
+        call SaveFile
         ret
 fe_Up:
         PUT_CURSOR WIFcursorRow, WIFcursorCol, CursorColor, BGcolor
@@ -637,7 +654,7 @@ fe_Delete:
         ret
 fe_Exit:
         call Exit
-        jnz fe_loop
+        jmp fe_loop
         ret
 FileEditor  ENDP
 
@@ -648,13 +665,17 @@ TakeFileName  PROC
         SET_CURSOR WIFcursorRow, WIFcursorCol
         lea bx,NBfileName
         mov cx,bx
-        add cx,8 ;End condition
+        add cx,MAX_LEN_FILENAME ;End condition
 tfn_loop:
         PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
         mov ax,0000h
         int 16h
         cmp ax,KEY_ENTER ;Enter key
         jz tfn_end
+        cmp ax,KEY_BACKSPACE
+        jz tfn_BackSpace
+        cmp ax,KEY_ESC
+        jz tfn_Exit
         WRITE_CHAR al, WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY, PL_RED
         inc WIFcursorCol ;check and inc WIFcursorRow also
         mov [bx],al
@@ -667,6 +688,27 @@ tfn_end:
         SET_CURSOR WIFcursorRow,WIFcursorCol
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
         mov NBstatActive,1d
+        ret
+tfn_BackSpace:
+        lea dx,NBfileName
+        cmp bx,dx
+        jz tfn_donothing
+;delete cursor at pos
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
+        dec WIFcursorCol
+        SET_CURSOR WIFcursorRow,WIFcursorCol
+;delete char at pos
+        dec bx
+        mov ah,[bx]
+        WRITE_CHAR ah, WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY, PL_RED
+        mov BYTE PTR [bx],' '
+tfn_donothing:
+        PUT_CURSOR WIFcursorRow, WIFcursorCol, PL_RED, PL_LGRAY
+        jmp tfn_loop
+        ret
+tfn_Exit:
+        call Exit
+        jmp tfn_loop
         ret
 TakeFileName  ENDP
 
@@ -689,7 +731,7 @@ ResetBuffer ENDP
 ResetFileName PROC
         push bx
         push cx
-        mov cx,8d
+        mov cx,MAX_LEN_FILENAME
         lea bx,NBfileName
         add cx,bx
 rfn_loop:
@@ -759,12 +801,17 @@ nf_ret:
 NewFile ENDP
 
 SaveFile PROC
+;!!! Access denied error when writing into loaded file !!!!!
         call WriteFile
         call CloseFile
         call Menu
         ret
 SaveFile ENDP
 Resume PROC
+;!!! NAME BAR CORRUPTION ON RESUME
+        call DrawEditorWindow
+        call WriteBuffer2screen
+        call FileEditor
         ret
 Resume ENDP
 Exit PROC
@@ -1138,7 +1185,8 @@ SetPalette ENDP
 ; ===================== FILE METHODS =====================
 OpenFile PROC
         PUSHALL
-        mov cx,7d
+        mov cx,MAX_LEN_FILENAME
+        dec cx
 of_strcpy:
         lea bx,NBfileName
         add bx,cx
@@ -1157,26 +1205,18 @@ of_strcpy:
         add bx,2d
         mov BYTE PTR [bx],ah
 
-
         mov ah,3Dh
-        mov al,0000010b
+        mov al,0100010b
         lea dx,LoadedFilePath
         int 21h
-        jnc of_success
-        mov FileErrorCode,ax
-        mov FileHandle,0000h
-        POPALL
-        RET
-of_success:
-        mov FileHandle,ax
-        mov FileErrorCode,0000h
-        POPALL
-        RET
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
 OpenFile ENDP
 
 CreateFile PROC
         PUSHALL
-        mov cx,7d
+        mov cx,MAX_LEN_FILENAME
+        dec cx
 cf_strcpy:
         lea bx,NBfileName
         add bx,cx
@@ -1199,18 +1239,10 @@ cf_strcpy:
         mov cx,0000h
         lea dx,NewFilePath
         int 21h
-
-        jnc cf_success
-        mov FileErrorCode,ax
-        mov FileHandle,0000h
-        POPALL
-        RET
-cf_success:
-        mov FileHandle,ax
-        mov FileErrorCode,0000h
-        POPALL
-        RET
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
 CreateFile ENDP
+
 WriteFile PROC
         PUSHALL
         mov ah,40h
@@ -1218,9 +1250,10 @@ WriteFile PROC
         mov cx,1950d
         lea dx,FileBuffer
         int 21h
-        POPALL
-        RET
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
 WriteFile ENDP
+
 ReadFile PROC
         PUSHALL
         mov ah,3Fh
@@ -1228,26 +1261,30 @@ ReadFile PROC
         mov cx,1950d
         lea dx,FileBuffer
         int 21h
-
-        jnc rf_success
-        mov FileErrorCode,ax
-        mov FileHandle,0000h
-        POPALL
-        RET
-rf_success:
-        mov FileHandle,ax
-        mov FileErrorCode,0000h
-        POPALL
-        RET
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
 ReadFile ENDP
+
 CloseFile PROC
         PUSHALL
         mov ah,3Eh
         mov bx,FileHandle
         int 21h
-        POPALL
-        RET
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
 CloseFile ENDP
+
+MoveFilePTR PROC
+        PUSHALL
+        mov ah,42h
+        mov al,00h
+        mov cx,0000h
+        mov dx,0000h
+        mov bx,FileHandle
+        int 21h
+;Write error/filehandle , POPALL and return
+        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
+MoveFilePTR ENDP
 
 WriteBuffer2screen PROC
 ;Write data in ram to editor
