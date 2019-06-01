@@ -1,5 +1,5 @@
 @echo off
-del gui.exe
+del *.exe
 del gui.obj
 del gui.map
 del linklog.txt

@@ -46,15 +46,10 @@ MAX_LEN_FILENAME equ 8d ;Working up to 8 ?
 ;========= OTHER PARAM =========
 
 ;========= MACRO DEFINITIONS =========
-
-DEBUG_VALUE_REG MACRO regname
-local p1
-local back
-local enddebug
+PRINT_BINARY_WORD MACRO value
+local p1, back, endprint
             PUSHALL
-            mov ax,0002h  ;Set text mode
-            int 10h
-            mov bx,regname
+            mov bx,value
             mov cx,16d
 back:
             shl bx,1
@@ -63,22 +58,50 @@ back:
             mov dl,'0'
             int 21h
             loop back
-            jmp enddebug
+            jmp endprint
 p1:
             mov ax,0200h
             mov dl,'1'
             int 21h
             loop back
-enddebug:
+endprint:
             POPALL
-            call ExitProgram
+
+ENDM
+
+DEBUG_VALUE_REG MACRO regname
+local enddebug_exit, enddebug_cont
+            PUSHALL
+            mov bx,regname
+            cmp bx,0h ;no error
+            jz enddebug_cont
+;Set pos
+            mov ax,0200h
+            xor bx,bx
+            mov dh,0d
+            mov dl,60d
+            int 10h
+;print error code
+PRINT_BINARY_WORD regname
+;Wait for key press
+            mov ax,0000h
+            int 16h
+            cmp ax,KEY_ESC
+            jz enddebug_exit
+            jmp enddebug_cont
+enddebug_exit:
+            POPALL
+            call Exit
+enddebug_cont:
+            POPALL
+
 ENDM
 
 LOG_HANDLE_N_ERROR MACRO FileHandleReg, FileErrorCodeReg
 local proc_success
             jnc proc_success
             mov FileErrorCodeReg,ax
-            mov FileHandleReg,0000h
+            ;mov FileHandleReg,0000h
             POPALL
             RET
 proc_success:
@@ -404,6 +427,9 @@ WIFcursorStatActive db 00h ;Status for cursor str 0:Deactive , 1:Active
 ;File Methods
 FileErrorCode dw 0000h
 FileHandle dw 0000h
+FileBytesRead dw 0000h
+FileBytesWrite dw 0000h
+FilePointer dw 0000h
 LoadedFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 NewFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 FileBuffer db 2500d DUP (20h),'$'
@@ -780,6 +806,7 @@ lf_ret:
         call WriteBuffer2screen
         call FileEditor
 
+
         jmp lf_ret
         ret
 LoadFile ENDP
@@ -802,6 +829,7 @@ NewFile ENDP
 
 SaveFile PROC
 ;!!! Access denied error when writing into loaded file !!!!!
+        call MoveFilePTR
         call WriteFile
         call CloseFile
         call Menu
@@ -1251,7 +1279,7 @@ WriteFile PROC
         lea dx,FileBuffer
         int 21h
 ;Write error/filehandle , POPALL and return
-        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
+        LOG_HANDLE_N_ERROR FileBytesWrite, FileErrorCode
 WriteFile ENDP
 
 ReadFile PROC
@@ -1262,7 +1290,7 @@ ReadFile PROC
         lea dx,FileBuffer
         int 21h
 ;Write error/filehandle , POPALL and return
-        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
+        LOG_HANDLE_N_ERROR FileBytesRead, FileErrorCode
 ReadFile ENDP
 
 CloseFile PROC
@@ -1282,8 +1310,8 @@ MoveFilePTR PROC
         mov dx,0000h
         mov bx,FileHandle
         int 21h
-;Write error/filehandle , POPALL and return
-        LOG_HANDLE_N_ERROR FileHandle, FileErrorCode
+;Write error/filepointer , POPALL and return
+        LOG_HANDLE_N_ERROR FilePointer, FileErrorCode
 MoveFilePTR ENDP
 
 WriteBuffer2screen PROC
