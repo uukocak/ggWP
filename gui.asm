@@ -390,10 +390,10 @@ strNew db "New File",'$'
 strSave db "Save File",'$'
 strResume db "Resume",'$'
 strExit db "Exit",'$'
-strToolbarUp db "F1  ",'#',"Menu   ",'*',"F2  ",'#',"Load   ",'*',"F3  ",'#',"New   ",'*',"F4  ",'#',"Save   ",'*',"F5  ",'#',"Find   ",'$'
-strToolbarDown db "F6  ",'#',"Cap Sentence   ",'*',"F7  ",'#',"Cap Words   ",'*',"ESC  ",'#',"Exit   ",'$'
-; '#' change to PL_BLACK
-; '*' change to PL_RED
+strToolbar  db "F1  ","#Menu   ","*F2  ","#Load   ","*F3  ","#New   ","*F4  ","#Save   ","*F5  ","#Find   "
+            db 0Ah, 0Dh, "    ","*F6  ","#Cap Sentence   ","*F7  ","#Cap Words   ","*ESC  ","#Exit   ",'$'
+; '#' write in PL_BLACK color
+; '*' write in PL_RED color
 strName db "File Name : ",'$'
 strRow db "Row    = ",'$'
 strCol db "Column = ",'$'
@@ -930,9 +930,9 @@ DrawToolbar PROC
         call DrawRect
         SET_CURSOR 28d, 4d
         mov DTstrColor,PL_RED
-        lea bx,strToolbarUp
+        lea bx,strToolbar
         mov al,[bx]
-dt_string_loop_up:
+dt_string_loop:
         push bx
         mov ah,0Eh
         xor bh,bh
@@ -944,63 +944,31 @@ dt_string_loop_up:
         inc bx
         mov al,[bx]
         cmp al,'#'
-        jz dt_set_black_up
+        jz dt_set_black
         cmp al,'*'
-        jz dt_set_red_up
-dt_continue_up:
+        jz dt_set_red
+dt_continue:
         cmp al,'$'
-        jnz dt_string_loop_up
-;Draw lower toolbar
-        SET_CURSOR 29d, 4d
+        jnz dt_string_loop
+        jmp dt_end
+
+dt_set_red:
         mov DTstrColor,PL_RED
-        lea bx,strToolbarDown
-        mov al,[bx]
-dt_string_loop_down:
-        push bx
-        mov ah,0Eh
-        xor bh,bh
-        mov bl,DTstrColor ;Text Color
-        xor bl,PL_LGRAY ;Button BG
-        or bl,0F0h
-        int 10h
-        pop bx
         inc bx
         mov al,[bx]
-        cmp al,'#'
-        jz dt_set_black_down
-        cmp al,'*'
-        jz dt_set_red_down
-dt_continue_down:
-        cmp al,'$'
-        jnz dt_string_loop_down
-        mov DTstatActive,1d
+        jmp dt_continue
+dt_set_black:
+        mov DTstrColor,PL_BLACK
+        inc bx
+        mov al,[bx]
+        jmp dt_continue
+
 dt_end:
         SET_CURSOR 28d, 60d
         WRITE_STRING strRow, PL_MAGENTA, PL_LGRAY
         SET_CURSOR 29d, 60d
         WRITE_STRING strCol, PL_MAGENTA, PL_LGRAY
         RET
-
-dt_set_red_down:
-        mov DTstrColor,PL_RED
-        inc bx
-        mov al,[bx]
-        jmp dt_continue_down
-dt_set_black_down:
-        mov DTstrColor,PL_BLACK
-        inc bx
-        mov al,[bx]
-        jmp dt_continue_down
-dt_set_red_up:
-        mov DTstrColor,PL_RED
-        inc bx
-        mov al,[bx]
-        jmp dt_continue_up
-dt_set_black_up:
-        mov DTstrColor,PL_BLACK
-        inc bx
-        mov al,[bx]
-        jmp dt_continue_up
 
 DrawToolbar ENDP
 
