@@ -54,8 +54,9 @@ UIBUTTONOFFSET equ 103d ;Offset to first Buttons
 UIBUTTONSPACING equ 65d ;Spacing between Buttons
 UIBUTTONHEIGHT equ 30d ;Button height
 UIBUTTONWIDTH equ 32d ;Button width
-UIBUTTONNUMBER equ 5d ; Number of buttons
+UIBUTTONNUMBER equ 5d ; Number of buttons"
 UIBUTTONXPOS equ 24d ; Button X position
+UIROWCOLSTRPOS equ 64d; Row and column counter position in y
 ;========= OTHER PARAM =========
 
 ;========= MACRO DEFINITIONS =========
@@ -204,13 +205,13 @@ ENDM
 
 SET_CURSOR  MACRO row, col
 ;Set cursor to row,col
-        PUSHALL
-        mov ax,0200h
-        xor bx,bx
-        mov dh,row
-        mov dl,col
-        int 10h
-        POPALL
+            PUSHALL
+            mov ax,0200h
+            xor bx,bx
+            mov dh,row
+            mov dl,col
+            int 10h
+            POPALL
 ENDM
 
 PUT_CURSOR  MACRO rowPos, colPos ,crsColor, crsBG_COLOR
@@ -390,8 +391,8 @@ strNew db "New File",'$'
 strSave db "Save File",'$'
 strResume db "Resume",'$'
 strExit db "Exit",'$'
-strToolbar  db "F1  ","#Menu   ","*F2  ","#Load   ","*F3  ","#New   ","*F4  ","#Save   ","*F5  ","#Find   "
-            db 0Ah, 0Dh, "    ","*F6  ","#Cap Sentence   ","*F7  ","#Cap Words   ","*ESC  ","#Exit   ",'$'
+strToolbar  db "F1 ","#Menu  ","*F2 ","#Load  ","*F3 ","#New  ","*F4 ","#Save  ","*F5 ","#Find  ","*F6 ","#Find-Replace  "
+            db 0Ah, 0Dh, "    ","*F7 ","#Capicalize Sentence  ","*F8 ","#Capicalize Words  ","*ESC ","#Exit  ",'$'
 ; '#' write in PL_BLACK color
 ; '*' write in PL_RED color
 strName db "File Name : ",'$'
@@ -587,6 +588,14 @@ fe_loop:
         jz fe_NewFile
         cmp ax,KEY_F4
         jz fe_SaveFile
+        cmp ax,KEY_F5
+        jz fe_Find
+        cmp ax,KEY_F6
+        jz fe_Find_Replace
+        cmp ax,KEY_F7
+        jz fe_Cap_Sents
+        cmp ax,KEY_F8
+        jz fe_Cap_Words
         cmp ax,KEY_ENTER
         jz fe_Enter
         cmp ax,KEY_UP
@@ -633,7 +642,16 @@ fe_NewFile:
         call NewFile
         ret
 fe_SaveFile:
+
         call SaveFile
+        ret
+fe_Find:
+        ret
+fe_Find_Replace:
+        ret
+fe_Cap_Sents:
+        ret
+fe_Cap_Words:
         ret
 fe_Up:
         PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
@@ -693,6 +711,7 @@ FileEditor  ENDP
 
 TakeFileName  PROC
         call ResetFileName
+        call DrawNamebar
         mov FEcursorRow,0
         mov FEcursorCol,13d
         SET_CURSOR FEcursorRow, FEcursorCol
@@ -720,7 +739,7 @@ tfn_end:
         WRITE_CHAR ' ', FEcursorRow, FEcursorCol, PL_RED, PL_LGRAY, PL_RED, PL_LGRAY ;delete underscore
         SET_CURSOR FEcursorRow,FEcursorCol
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
-        mov NBstatActive,1d
+        ;mov NBstatActive,1d
         ret
 tfn_BackSpace:
         lea dx,NBfileName
@@ -800,6 +819,7 @@ m_ret:
         ret
 Menu ENDP
 LoadFile PROC
+        call CloseFile ;close previous file
         mov NBstatActive,0d
         mov WIFcursorStatActive,0d
 ;Reset file in ram
@@ -819,6 +839,7 @@ lf_ret:
 LoadFile ENDP
 
 NewFile PROC
+        call CloseFile; close previous file
         mov NBstatActive,0d
         mov WIFcursorStatActive,0d
 ;Reset file in ram
@@ -826,8 +847,7 @@ NewFile PROC
 ;Draw Editor window
         call DrawEditorWindow
 nf_ret:
-        call TakeFileName
-        call CreateFile
+
         call FileEditor
 
         jmp nf_ret
@@ -835,21 +855,27 @@ nf_ret:
 NewFile ENDP
 
 SaveFile PROC
-;!!! Access denied error when writing into loaded file !!!!!
+        mov NBstatActive,0d
+        call TakeFileName
+        call CreateFile
         call MoveFilePTR
         call WriteFile
-        call CloseFile
-        call Menu
+        call DrawEditorWindow
+        call WriteBuffer2screen
+        call FileEditor
+        ;call Menu
         ret
 SaveFile ENDP
 Resume PROC
-;!!! NAME BAR CORRUPTION ON RESUME
+        call ResetFileName
+        call DrawNamebar
         call DrawEditorWindow
         call WriteBuffer2screen
         call FileEditor
         ret
 Resume ENDP
 Exit PROC
+        call CloseFile
         mov ax,0002h  ;Set text mode
         int 10h
         mov ax, 4c00h
@@ -893,11 +919,11 @@ DrawEditorWindow PROC
 DrawEditorWindow ENDP
 
 DrawCursorStr PROC
-        PASS_RECT_PARAM 69d, 440d, 3d, 40d, PL_LGRAY
+        PASS_RECT_PARAM UIROWCOLSTRPOS+9, 440d, 3d, 40d, PL_LGRAY
         call DrawRect
-        SET_CURSOR 28d, 69d
+        SET_CURSOR 28d, UIROWCOLSTRPOS + 9
         PRINT_BHEX_NUM FEcursorRow, PL_BLUE, PL_LGRAY
-        SET_CURSOR 29d, 69d
+        SET_CURSOR 29d, UIROWCOLSTRPOS + 9
         PRINT_BHEX_NUM FEcursorCol, PL_BLUE, PL_LGRAY
         RET
 DrawCursorStr ENDP
@@ -908,7 +934,7 @@ DrawNamebar PROC
         call DrawRect
         cmp NBstatActive,0d
         jz dn_nbactive
-        mov FEcursorRow,0
+        mov FEcursorRow,0d
         mov FEcursorCol,13d
         SET_CURSOR FEcursorRow, FEcursorCol
         WRITE_STRING NBfileName, PL_RED, PL_LGRAY
@@ -964,9 +990,9 @@ dt_set_black:
         jmp dt_continue
 
 dt_end:
-        SET_CURSOR 28d, 60d
+        SET_CURSOR 28d, UIROWCOLSTRPOS
         WRITE_STRING strRow, PL_MAGENTA, PL_LGRAY
-        SET_CURSOR 29d, 60d
+        SET_CURSOR 29d, UIROWCOLSTRPOS
         WRITE_STRING strCol, PL_MAGENTA, PL_LGRAY
         RET
 
