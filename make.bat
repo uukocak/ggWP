@@ -14,6 +14,11 @@ if [%2]==[txt] del *.txt > nul
 goto :EOF
 
 :run
+del *.exe > nul
+del gui.obj > nul
+del gui.map > nul
+del linklog.txt > nul
+del complog.txt > nul
 ml /c /Cp gui.asm > complog.txt
 cls
 echo ASSEMBLY DONE

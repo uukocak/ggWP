@@ -43,12 +43,13 @@ KEY_DEL equ 5300h
 
 ;========= OTHER PARAM =========
 MAX_LEN_FILENAME equ 8d ;Working up to 8 ?
+MAX_LEN_SEARCH_STR equ 16d
 SELECTION_COLOR equ PL_RED
 ;Cursor parameters
 BG_COLOR equ PL_BLUE
-CURSOR_COLOR equ PL_WHITE
+CURSOR_COLOR equ PL_LGRAY
 CURSOR_BG_COLOR equ PL_BLUE
-CURSOR_TYPE equ '_'
+CURSOR_TYPE equ 219d
 ;UI parameters
 UIBUTTONOFFSET equ 103d ;Offset to first Buttons
 UIBUTTONSPACING equ 65d ;Spacing between Buttons
@@ -399,6 +400,7 @@ strName db "File Name : ",'$'
 strRow db "Row    = ",'$'
 strCol db "Column = ",'$'
 strTxt db ".txt",'$'
+strSearch db "Search for : ",'$'
 ;======== STRINGS ========
 MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
 StatCallFromMenu db 0d ;Called from menu 1 , not 0
@@ -442,7 +444,9 @@ FileBytesWrite dw 0000h
 FilePointer dw 0000h
 LoadedFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 NewFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
-
+;New feature variables
+FNRsearchStr db MAX_LEN_SEARCH_STR DUP (20h),'$'
+FNRfoundindex dw 80d ; Found : index of found pattern
 
 .CODE
 .STARTUP
@@ -571,6 +575,22 @@ CalcCursorPos  PROC
         ret
 CalcCursorPos  ENDP
 
+CalcCursorRowCol  PROC
+;Calculates row and column data using cursor position data
+        PUSHALL
+        xor ax,ax
+        xor dx,dx
+        mov ax,FEcursorPos
+        mov bl,78d
+        div bl
+        add al,2
+        add ah,1
+        mov FEcursorCol,ah
+        mov FEcursorRow,al
+        POPALL
+        ret
+CalcCursorRowCol  ENDP
+
 FileEditor  PROC
         mov FEcursorRow,2d
         mov FEcursorCol,2d
@@ -635,27 +655,53 @@ fe_Enter:
         call CalcCursorPos
         jmp fe_loop
 fe_Menu:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
         call Menu
         ret
 fe_LoadFile:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
         mov StatCallFromMenu,0d
         call LoadFile
         ret
 fe_NewFile:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
         mov StatCallFromMenu,0d
         call NewFile
         ret
 fe_SaveFile:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
         mov StatCallFromMenu,0d
         call SaveFile
         ret
 fe_Find:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        call ResetSearchStr
+        call DrawSearchbar
+        call TakeSearchStr
+        call SearchInBuffer
+        cmp FNRfoundindex,-1d
+        jz fe_loop
+        MOVRW FEcursorPos,FNRfoundindex
+        call CalcCursorRowCol
+        call WrapColRowCount
+    ;search and mark
+        jmp fe_loop
         ret
 fe_Find_Replace:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        jmp fe_loop
         ret
 fe_Cap_Sents:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        call CapSentsInBuffer
+        call Resume
+        jmp fe_loop
         ret
 fe_Cap_Words:
+        PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        call CapWordsInBuffer
+        call Resume
+        jmp fe_loop
         ret
 fe_Up:
         PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
@@ -715,16 +761,19 @@ FileEditor  ENDP
 
 TakeFileName  PROC
         call ResetFileName
-        mov FEcursorRow,0
+        mov FEcursorRow,0d
         mov FEcursorCol,13d
-        SET_CURSOR FEcursorRow, FEcursorCol
+        SET_CURSOR 0d, 13d
         lea bx,NBfileName
         mov cx,bx
         add cx,MAX_LEN_FILENAME ;End condition
+        inc cx
 tfn_loop:
         PUT_CURSOR FEcursorRow, FEcursorCol, PL_RED, PL_LGRAY
         mov ax,0000h
         int 16h
+        cmp bx,cx
+        jz tfn_end
         cmp ax,KEY_ENTER ;Enter key
         jz tfn_end
         cmp ax,KEY_BACKSPACE
@@ -735,8 +784,7 @@ tfn_loop:
         inc FEcursorCol ;check and inc FEcursorRow also
         mov [bx],al
         inc bx
-        cmp bx,cx
-        jnz tfn_loop
+        jmp tfn_loop
 
 tfn_end:
         WRITE_CHAR ' ', FEcursorRow, FEcursorCol, PL_RED, PL_LGRAY, PL_RED, PL_LGRAY ;delete underscore
@@ -766,6 +814,56 @@ tfn_Exit:
         jmp tfn_loop
         ret
 TakeFileName  ENDP
+
+TakeSearchStr  PROC
+        mov FEcursorRow,0d
+        mov FEcursorCol,63d
+        SET_CURSOR 0d, 63d ;?
+        lea bx,FNRsearchStr
+        mov cx,bx
+        add cx,MAX_LEN_SEARCH_STR ;End condition
+tss_loop:
+        PUT_CURSOR FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_ENTER ;Enter key
+        jz tss_end
+        cmp ax,KEY_BACKSPACE
+        jz tss_BackSpace
+        cmp ax,KEY_ESC
+        jz tss_Exit
+        WRITE_CHAR al, FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY, PL_BLUE, PL_LGRAY
+        inc FEcursorCol ;check and inc FEcursorRow also
+        mov BYTE PTR [bx],al
+        inc bx
+        cmp bx,cx
+        jnz tss_loop
+
+tss_end:
+        WRITE_CHAR ' ', FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY, PL_BLUE, PL_LGRAY ;delete underscore
+        ret
+tss_BackSpace:
+        lea dx,FNRsearchStr
+        cmp bx,dx
+        jz tss_donothing
+;delete cursor at pos
+        PUT_CURSOR FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY
+        dec FEcursorCol
+        SET_CURSOR FEcursorRow,FEcursorCol
+;delete char at pos
+        dec bx
+        mov ah,[bx]
+        WRITE_CHAR ah, FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY, PL_BLUE, PL_LGRAY
+        mov BYTE PTR [bx],' '
+tss_donothing:
+        PUT_CURSOR FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY
+        jmp tss_loop
+        ret
+tss_Exit:
+        call Exit
+        jmp tss_loop
+        ret
+TakeSearchStr  ENDP
 
 ResetBuffer PROC
         push bx
@@ -798,6 +896,114 @@ rfn_loop:
         pop bx
         ret
 ResetFileName ENDP
+
+ResetSearchStr PROC
+        push bx
+        push cx
+        mov cx,MAX_LEN_SEARCH_STR
+        lea bx,FNRsearchStr
+        add cx,bx
+rss_loop:
+        mov BYTE PTR [bx],20h
+        inc bx
+        cmp bx,cx
+        jnz rss_loop
+        pop cx
+        pop bx
+        ret
+ResetSearchStr ENDP
+
+SearchInBuffer PROC
+        PUSHALL
+        xor cx,cx ;Search index for file
+        xor dx,dx ;index for FNRsearchStr
+sib_loop:
+        lea bx,FNRsearchStr
+        add bx,dx
+        mov ah,[bx]
+
+        cmp ah,20h
+        jz sib_found
+        cmp ah,'$'
+        jz sib_found
+
+        lea bx,FileBuffer
+        add bx,cx
+        cmp BYTE PTR [bx],ah
+        jz sib_match
+        jmp sib_unmatch
+
+sib_match:
+        cmp dx,0h
+        jnz sib_notfirstmatch
+        mov FNRfoundindex,cx
+sib_notfirstmatch:
+        inc cx
+        cmp cx,300d;search depth
+        ja sib_notfound
+        inc dx
+        jmp sib_loop
+sib_unmatch:
+        inc cx
+        cmp cx,300d;search depth
+        ja sib_notfound
+        xor dx,dx
+        jmp sib_loop
+
+sib_notfound:
+        mov FNRfoundindex,-1d
+sib_found:
+        POPALL
+        RET
+SearchInBuffer ENDP
+
+CapWordsInBuffer PROC
+        PUSHALL
+        lea bx,FileBuffer
+        dec bx
+cwib_blank:
+        inc bx
+        cmp BYTE PTR [bx],'$' ;chk end
+        jz cwib_end_con ;if end goto end_con
+        cmp BYTE PTR [bx],' ' ;chk space
+        jz cwib_blank ;if space goto blank
+        cmp BYTE PTR [bx],'.' ;chk period
+        jz cwib_blank
+        and BYTE PTR [bx],0DFh ;else convert uppercase
+        jmp cwib_word ;then goto word
+cwib_word:
+        cmp BYTE PTR [bx],'$' ;chk end
+        jz cwib_end_con ;if end goto end_con
+        cmp BYTE PTR [bx],' ' ;chk space
+        jz cwib_blank ;if space goto blank
+        inc bx ;else increase BX
+        jmp cwib_word ;and goto word
+cwib_end_con:
+        POPALL
+        ret
+CapWordsInBuffer ENDP
+
+CapSentsInBuffer PROC
+        PUSHALL
+        lea bx,FileBuffer
+        dec bx
+csib_blank:
+        inc bx
+        cmp BYTE PTR [bx],'$' ;chk end
+        jz csib_end_con ;if end goto end_con
+        cmp BYTE PTR [bx],'.' ;chk period
+        jz csib_word
+        jmp csib_blank
+csib_word:
+        inc bx ;else increase BX
+        cmp BYTE PTR [bx],'$' ;chk end
+        jz csib_end_con ;if end goto end_con
+        and BYTE PTR [bx],0DFh ;else convert uppercase
+        jmp csib_blank ;and goto word
+csib_end_con:
+        POPALL
+        ret
+CapSentsInBuffer ENDP
 
 ExitProgram  PROC
 ;Check keyboard and exits if F10 pressed
@@ -923,6 +1129,7 @@ DrawEditorWindow PROC
 ;Draw toolbar
         call DrawToolbar
         call DrawNamebar
+        RET
 DrawEditorWindow ENDP
 
 DrawCursorStr PROC
@@ -941,9 +1148,7 @@ DrawNamebar PROC
         call DrawRect
         cmp NBstatActive,0d ;Write filename when 1d
         jz dn_nbactive
-        mov FEcursorRow,0d
-        mov FEcursorCol,13d
-        SET_CURSOR FEcursorRow, FEcursorCol
+        SET_CURSOR 0d, 13d
         WRITE_STRING NBfileName, PL_RED, PL_LGRAY
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
 dn_nbactive:
@@ -951,6 +1156,15 @@ dn_nbactive:
         WRITE_STRING strName, PL_BLACK, PL_LGRAY
         RET
 DrawNamebar ENDP
+
+DrawSearchbar PROC
+        PASS_RECT_PARAM 50d,0d,30d,20d,PL_LGRAY
+        call DrawRect
+        SET_CURSOR 0d, 50d
+        WRITE_STRING strSearch, PL_BLACK, PL_LGRAY
+        SET_CURSOR 0d, 63d ;?
+        RET
+DrawSearchbar ENDP
 
 DrawToolbar PROC
 ;Draw upper toolbar
