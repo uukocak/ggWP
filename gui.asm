@@ -400,6 +400,7 @@ strCol db "Column = ",'$'
 strTxt db ".txt",'$'
 ;======== STRINGS ========
 MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
+StatCallFromMenu db 0d ;Called from menu 1 , not 0
 ;Set palette variables
 PLnewcolor db 00h
 PLlastcolor db 00h
@@ -500,6 +501,7 @@ ck_dec:
         add UIopt,ax
         jmp ck_end
 ck_enter:
+        mov StatCallFromMenu,1d
         mov bx,UIopt
         shl bx,1
         jmp MenuOption[bx]
@@ -627,12 +629,15 @@ fe_Menu:
         call Menu
         ret
 fe_LoadFile:
+        mov StatCallFromMenu,0d
         call LoadFile
         ret
 fe_NewFile:
+        mov StatCallFromMenu,0d
         call NewFile
         ret
 fe_SaveFile:
+        mov StatCallFromMenu,0d
         call SaveFile
         ret
 fe_Up:
@@ -800,6 +805,7 @@ m_ret:
         ret
 Menu ENDP
 LoadFile PROC
+        call CloseFile
         mov NBstatActive,0d
         mov WIFcursorStatActive,0d
 ;Reset file in ram
@@ -819,6 +825,7 @@ lf_ret:
 LoadFile ENDP
 
 NewFile PROC
+        call CloseFile
         mov NBstatActive,0d
         mov WIFcursorStatActive,0d
 ;Reset file in ram
@@ -835,21 +842,31 @@ nf_ret:
 NewFile ENDP
 
 SaveFile PROC
-;!!! Access denied error when writing into loaded file !!!!!
+        mov NBstatActive , 0d
+        call DrawEditorWindow
+        call WriteBuffer2screen
+        call TakeFileName
+        call CreateFile
         call MoveFilePTR
         call WriteFile
         call CloseFile
+        ;cmp StatCallFromMenu,1d
+        ;jz sf_callmenu
+        call FileEditor
+        ret
+sf_callmenu:
         call Menu
         ret
 SaveFile ENDP
 Resume PROC
-;!!! NAME BAR CORRUPTION ON RESUME
+        ;puts blank in the filename when resume
         call DrawEditorWindow
         call WriteBuffer2screen
         call FileEditor
         ret
 Resume ENDP
 Exit PROC
+        call CloseFile
         mov ax,0002h  ;Set text mode
         int 10h
         mov ax, 4c00h
@@ -906,13 +923,12 @@ DrawNamebar PROC
 ;Draw Header
         PASS_RECT_PARAM 0d,0d,80d,20d,PL_LGRAY
         call DrawRect
-        cmp NBstatActive,0d
+        cmp NBstatActive,0d ;Write filename when 1d
         jz dn_nbactive
         mov FEcursorRow,0
         mov FEcursorCol,13d
         SET_CURSOR FEcursorRow, FEcursorCol
         WRITE_STRING NBfileName, PL_RED, PL_LGRAY
-        SET_CURSOR FEcursorRow,FEcursorCol
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
 dn_nbactive:
         SET_CURSOR 0d, 1d
