@@ -998,6 +998,10 @@ csib_word:
         inc bx ;else increase BX
         cmp BYTE PTR [bx],'$' ;chk end
         jz csib_end_con ;if end goto end_con
+        cmp BYTE PTR [bx],'.' ;chk period
+        jz csib_word
+        cmp BYTE PTR [bx],' ' ;chk period
+        jz csib_word
         and BYTE PTR [bx],0DFh ;else convert uppercase
         jmp csib_blank ;and goto word
 csib_end_con:
@@ -1146,10 +1150,28 @@ DrawNamebar PROC
 ;Draw Header
         PASS_RECT_PARAM 0d,0d,80d,20d,PL_LGRAY
         call DrawRect
-        cmp NBstatActive,0d ;Write filename when 1d
+        cmp NBstatActive,0d ;Write filename when NBstatActive
         jz dn_nbactive
         SET_CURSOR 0d, 13d
-        WRITE_STRING NBfileName, PL_RED, PL_LGRAY
+        ;WRITE_STRING Sequance but stops at ' ' char also
+        lea bx,NBfileName
+        mov al,[bx]
+dn_loop:
+        push bx
+        mov ah,0Eh
+        xor bh,bh
+        mov bl,PL_RED ;Text Color
+        xor bl,PL_LGRAY ;Button BG
+        or bl,0F0h
+        int 10h
+        pop bx
+        inc bx
+        mov al,[bx]
+        cmp al,' '
+        jz dn_endloop
+        cmp al,'$'
+        jnz dn_loop
+dn_endloop:
         WRITE_STRING strTxt, PL_RED, PL_LGRAY ;put .txt
 dn_nbactive:
         SET_CURSOR 0d, 1d
