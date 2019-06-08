@@ -401,6 +401,8 @@ strRow db "Row    = ",'$'
 strCol db "Column = ",'$'
 strTxt db ".txt",'$'
 strSearch db "Search for : ",'$'
+strHeader db "gg Word  Processor",'$'
+strFooterVersion db "Ver 1.0",'$'
 ;======== STRINGS ========
 MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
 StatCallFromMenu db 0d ;Called from menu 1 , not 0
@@ -1122,6 +1124,19 @@ DrawMenuStr PROC
 
 DrawMenuStr ENDP
 
+DrawHeaderStr PROC
+        SET_CURSOR 0d, 31d
+        WRITE_STRING strHeader, PL_RED, PL_LGRAY
+        RET
+DrawHeaderStr ENDP
+
+DrawFooterStr PROC
+        SET_CURSOR 28d, 70d
+        WRITE_STRING strFooterVersion, PL_RED, PL_LGRAY
+        RET
+DrawFooterStr ENDP
+
+
 DrawEditorWindow PROC
 ;Reset Center rectangle
         PASS_RECT_PARAM 0d,0d,80d,440d,0d
@@ -1404,7 +1419,8 @@ init_drawbtn:
 
 ;Write button texts
         call DrawMenuStr
-
+        call DrawHeaderStr
+        call DrawFooterStr
 ;Draw Selection box
         mov UIopt,0d
         call DrawSelection
