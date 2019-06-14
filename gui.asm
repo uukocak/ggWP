@@ -1,5 +1,4 @@
 TITLE ggWP
-; THIS PROGRAM DISPLAYS "HELLO, WORLD!"
 
 ;========= COLOR ENUM =========
 PL_BLACK equ 00h
@@ -55,9 +54,9 @@ UIBUTTONOFFSET equ 103d ;Offset to first Buttons
 UIBUTTONSPACING equ 65d ;Spacing between Buttons
 UIBUTTONHEIGHT equ 30d ;Button height
 UIBUTTONWIDTH equ 32d ;Button width
-UIBUTTONNUMBER equ 5d ; Number of buttons"
+UIBUTTONNUMBER equ 5d ; Number of buttons
 UIBUTTONXPOS equ 24d ; Button X position
-UIROWCOLSTRPOS equ 64d; Row and column counter position in y
+UIROWCOLSTRPOS equ 64d; Row and column count , position in y
 ;========= OTHER PARAM =========
 
 ;========= MACRO DEFINITIONS =========
@@ -401,8 +400,10 @@ strRow db "Row    = ",'$'
 strCol db "Column = ",'$'
 strTxt db ".txt",'$'
 strSearch db "Search for : ",'$'
+strReplace db "Replace with: ",'$'
 strHeader db "gg Word  Processor",'$'
 strFooterVersion db "Ver 1.0",'$'
+strNotFoundError db "Not Found !!$"
 ;======== STRINGS ========
 MenuOption dw LoadFile, NewFile, SaveFile, Resume, Exit
 StatCallFromMenu db 0d ;Called from menu 1 , not 0
@@ -439,6 +440,7 @@ FEcursorCol db 00h
 WIFcursorStatActive db 00h ;Status for cursor str 0:Deactive , 1:Active
 ;File Methods
 FileBuffer db 2500d DUP (20h),'$'
+TempBuffer db 3500d DUP (20h),'$'
 FileErrorCode dw 0000h
 FileHandle dw 0000h
 FileBytesRead dw 0000h
@@ -448,7 +450,12 @@ LoadedFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 NewFilePath db "./" ,MAX_LEN_FILENAME DUP (20h),".txt",0
 ;New feature variables
 FNRsearchStr db MAX_LEN_SEARCH_STR DUP (20h),'$'
+FNRreplaceStr db MAX_LEN_SEARCH_STR DUP (20h),'$'
 FNRfoundindex dw 80d ; Found : index of found pattern
+FNRstrPointer dw 0000d
+FileBuffer_index dw ?             ;INDEX FOR "FileBuffer".
+TempBuffer_index dw ?             ;INDEX FOR "RESULT".
+
 
 .CODE
 .STARTUP
@@ -521,6 +528,17 @@ ck_exit:
 
 CheckKey  ENDP
 
+NotFoundError PROC
+        SET_CURSOR 0d, 35d
+        WRITE_STRING strNotFoundError, PL_RED, PL_LGRAY
+        mov ax,0000h
+        int 16h
+        cmp ax,KEY_ESC
+        jz Exit
+        PASS_RECT_PARAM 35d,0d,12d,20d,PL_LGRAY
+        call DrawRect
+        ret
+NotFoundError ENDP
 
 WrapColRowCount PROC
 ;Checks boundaries of row and column positions
@@ -677,20 +695,53 @@ fe_SaveFile:
         ret
 fe_Find:
         PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        mov FNRstrPointer,Offset FNRsearchStr
         call ResetSearchStr
         call DrawSearchbar
+        mov FNRstrPointer,Offset FNRsearchStr
         call TakeSearchStr
         call SearchInBuffer
         cmp FNRfoundindex,-1d
-        jz fe_loop
+        jz fe_searchnotfound
+    ;search and mark
         MOVRW FEcursorPos,FNRfoundindex
         call CalcCursorRowCol
         call WrapColRowCount
-    ;search and mark
         jmp fe_loop
         ret
+fe_searchnotfound:
+        call NotFoundError
+        mov FEcursorPos,00d
+        call CalcCursorRowCol
+        call WrapColRowCount
+        jmp fe_loop
+        ret
+
 fe_Find_Replace:
         PUT_CURSOR FEcursorRow, FEcursorCol, CURSOR_COLOR, CURSOR_BG_COLOR
+        ;reset search/replace str
+        mov FNRstrPointer,Offset FNRsearchStr
+        call ResetSearchStr
+        mov FNRstrPointer,Offset FNRreplaceStr
+        call ResetSearchStr
+        ;take search str
+        call DrawSearchbar
+        mov FNRstrPointer,Offset FNRsearchStr
+        call TakeSearchStr
+        ;take replace str
+        PASS_RECT_PARAM 50d,0d,30d,20d,PL_LGRAY
+        call DrawRect
+        SET_CURSOR 0d, 50d
+        WRITE_STRING strReplace, PL_BLACK, PL_LGRAY ;replace word
+        SET_CURSOR 0d, 63d
+        mov FNRstrPointer,Offset FNRreplaceStr
+        call TakeSearchStr
+        ;find and replace code
+        ;find and replace code
+        call FindReplaceInBuffer
+        ;find and replace code
+        ;find and replace code
+        call Resume
         jmp fe_loop
         ret
 fe_Cap_Sents:
@@ -820,8 +871,9 @@ TakeFileName  ENDP
 TakeSearchStr  PROC
         mov FEcursorRow,0d
         mov FEcursorCol,63d
-        SET_CURSOR 0d, 63d ;?
-        lea bx,FNRsearchStr
+        SET_CURSOR 0d, 63d
+        mov bx,FNRstrPointer
+        ;lea bx,FNRsearchStr
         mov cx,bx
         add cx,MAX_LEN_SEARCH_STR ;End condition
 tss_loop:
@@ -845,7 +897,8 @@ tss_end:
         WRITE_CHAR ' ', FEcursorRow, FEcursorCol, PL_BLUE, PL_LGRAY, PL_BLUE, PL_LGRAY ;delete underscore
         ret
 tss_BackSpace:
-        lea dx,FNRsearchStr
+        ;lea dx,FNRsearchStr
+        mov dx,FNRstrPointer
         cmp bx,dx
         jz tss_donothing
 ;delete cursor at pos
@@ -903,7 +956,7 @@ ResetSearchStr PROC
         push bx
         push cx
         mov cx,MAX_LEN_SEARCH_STR
-        lea bx,FNRsearchStr
+        mov bx,FNRstrPointer
         add cx,bx
 rss_loop:
         mov BYTE PTR [bx],20h
@@ -941,13 +994,13 @@ sib_match:
         mov FNRfoundindex,cx
 sib_notfirstmatch:
         inc cx
-        cmp cx,300d;search depth
+        cmp cx,2500d;search depth
         ja sib_notfound
         inc dx
         jmp sib_loop
 sib_unmatch:
         inc cx
-        cmp cx,300d;search depth
+        cmp cx,2500d;search depth
         ja sib_notfound
         xor dx,dx
         jmp sib_loop
@@ -958,6 +1011,65 @@ sib_found:
         POPALL
         RET
 SearchInBuffer ENDP
+
+FindReplaceInBuffer PROC
+        PUSHALL
+        mov FileBuffer_index, offset FileBuffer
+        mov TempBuffer_index, offset TempBuffer
+        mov si, FileBuffer_index
+        lea di, FNRsearchStr
+frib_search:
+        mov al, [di]
+        cmp al, 20h
+        je frib_match
+        mov bl,[si]
+        cmp bl,24h
+        je frib_finale
+
+        cmp [si], al
+        jne frib_mismatch
+        inc si
+        inc di
+        jmp frib_search
+frib_match:
+        mov FileBuffer_index, si
+        dec FileBuffer_index
+        lea di, FNRreplaceStr
+frib_replace:
+        mov al,[di]
+        cmp al,20h
+        je  frib_next
+        mov si, TempBuffer_index
+        mov [si], al
+        inc TempBuffer_index
+        inc di
+        jmp frib_replace
+frib_mismatch:
+        mov si, FileBuffer_index
+        mov di, TempBuffer_index
+        mov al, [si]
+        mov [di], al
+        inc TempBuffer_index
+frib_next:
+        lea di, FNRsearchStr
+        inc FileBuffer_index
+        mov si,FileBuffer_index
+        mov bl,[si]
+        cmp bl,24h
+        jne frib_search
+frib_finale:
+        mov si,Offset TempBuffer
+        mov di,Offset FileBuffer
+        mov cx,2500d
+load_temp:
+        mov ah,BYTE PTR [si]
+        mov BYTE PTR [di],ah
+        inc si
+        inc di
+        loop load_temp
+        POPALL
+        RET
+FindReplaceInBuffer ENDP
 
 CapWordsInBuffer PROC
         PUSHALL
@@ -1199,7 +1311,7 @@ DrawSearchbar PROC
         call DrawRect
         SET_CURSOR 0d, 50d
         WRITE_STRING strSearch, PL_BLACK, PL_LGRAY
-        SET_CURSOR 0d, 63d ;?
+        SET_CURSOR 0d, 63d
         RET
 DrawSearchbar ENDP
 
