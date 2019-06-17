@@ -60,57 +60,6 @@ UIROWCOLSTRPOS equ 64d; Row and column count , position in y
 ;========= OTHER PARAM =========
 
 ;========= MACRO DEFINITIONS =========
-PRINT_BINARY_WORD MACRO value
-local p1, back, endprint
-            PUSHALL
-            mov bx,value
-            mov cx,16d
-back:
-            shl bx,1
-            jc p1
-            mov ax,0200h
-            mov dl,'0'
-            int 21h
-            loop back
-            jmp endprint
-p1:
-            mov ax,0200h
-            mov dl,'1'
-            int 21h
-            loop back
-endprint:
-            POPALL
-
-ENDM
-
-DEBUG_VALUE_REG MACRO regname
-local enddebug_exit, enddebug_cont
-            PUSHALL
-            mov bx,regname
-            cmp bx,0h ;no error
-            jz enddebug_cont
-;Set pos
-            mov ax,0200h
-            xor bx,bx
-            mov dh,0d
-            mov dl,60d
-            int 10h
-;print error code
-PRINT_BINARY_WORD regname
-;Wait for key press
-            mov ax,0000h
-            int 16h
-            cmp ax,KEY_ESC
-            jz enddebug_exit
-            jmp enddebug_cont
-enddebug_exit:
-            POPALL
-            call Exit
-enddebug_cont:
-            POPALL
-
-ENDM
-
 LOG_HANDLE_N_ERROR MACRO FileHandleReg, FileErrorCodeReg
 local proc_success
             jnc proc_success
@@ -392,7 +341,7 @@ strSave db "Save File",'$'
 strResume db "Resume",'$'
 strExit db "Exit",'$'
 strToolbar  db "F1 ","#Menu  ","*F2 ","#Load  ","*F3 ","#New  ","*F4 ","#Save  ","*F5 ","#Find  ","*F6 ","#Find-Replace  "
-            db 0Ah, 0Dh, "    ","*F7 ","#Capicalize Sentence  ","*F8 ","#Capicalize Words  ","*ESC ","#Exit  ",'$'
+            db 0Ah, 0Dh, "    ","*F7 ","#Capitalize Sentence  ","*F8 ","#Capitalize Words  ","*ESC ","#Exit  ",'$'
 ; '#' write in PL_BLACK color
 ; '*' write in PL_RED color
 strName db "File Name : ",'$'
@@ -525,7 +474,6 @@ ck_exit:
         int 10h
         mov ax, 4c00h
         int 21h
-
 CheckKey  ENDP
 
 NotFoundError PROC
@@ -736,11 +684,7 @@ fe_Find_Replace:
         SET_CURSOR 0d, 63d
         mov FNRstrPointer,Offset FNRreplaceStr
         call TakeSearchStr
-        ;find and replace code
-        ;find and replace code
         call FindReplaceInBuffer
-        ;find and replace code
-        ;find and replace code
         call Resume
         jmp fe_loop
         ret
@@ -1159,8 +1103,6 @@ lf_ret:
         call ReadFile
         call WriteBuffer2screen
         call FileEditor
-
-
         jmp lf_ret
         ret
 LoadFile ENDP
@@ -1174,9 +1116,7 @@ NewFile PROC
 ;Draw Editor window
         call DrawEditorWindow
 nf_ret:
-
         call FileEditor
-
         jmp nf_ret
         ret
 NewFile ENDP
@@ -1190,8 +1130,6 @@ SaveFile PROC
         call MoveFilePTR
         call WriteFile
         call CloseFile
-        ;cmp StatCallFromMenu,1d
-        ;jz sf_callmenu
         call FileEditor
         ret
 sf_callmenu:
@@ -1199,7 +1137,6 @@ sf_callmenu:
         ret
 SaveFile ENDP
 Resume PROC
-        ;puts blank in the filename when resume
         call DrawEditorWindow
         call WriteBuffer2screen
         call FileEditor
